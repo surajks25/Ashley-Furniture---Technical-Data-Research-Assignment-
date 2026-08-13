@@ -1,0 +1,207 @@
+# Ashley Furniture – Product Data Extraction
+
+## Project Overview
+
+This project is a **web scraping and browser automation project** developed as part of a Technical / Data Research Assignment for **Ashley Furniture**.
+
+The objective is to collect product information for **198 SKUs**, validate the extracted data, and save the results in Excel.
+
+## Problem Statement
+
+The provided Excel file contains 198 Ashley Furniture product SKUs. Manually searching each SKU and collecting product information can be time-consuming and may lead to data-entry errors.
+
+The required information includes:
+
+* SKU
+* Product URL
+* Image
+* Description
+* Color
+* Price
+* Series Name
+* UPC
+* Product Dimensions
+* Carton Dimensions
+
+## Solution
+
+I developed a Python-based Selenium automation workflow to reduce manual work.
+
+```text
+Excel File
+    ↓
+Read SKU
+    ↓
+Search Ashley Furniture
+    ↓
+Find Product Page
+    ↓
+Validate SKU
+    ↓
+Extract Product Information
+    ↓
+Save to Excel
+```
+
+The automation handles:
+
+* Reading SKUs from Excel
+* Opening Ashley Furniture
+* Handling the location popup
+* Handling cookie popup
+* Searching for SKUs
+* Finding matching product URLs
+* Opening product pages
+* Validating SKUs
+* Extracting basic product information
+* Saving results to Excel
+
+## Technologies Used
+
+* Python
+* Selenium
+* Pandas
+* OpenPyXL
+* Excel
+* Web Scraping
+* Browser Automation
+
+## Initial Challenge
+
+Initially, I tried using Python `requests` to access Ashley Furniture product pages.
+
+The website returned **HTTP 406** and did not provide useful page content.
+
+Because of this, I changed the approach to **Selenium browser automation**.
+
+## Test Results
+
+### SKU Search Test
+
+Tested SKU: `R407681`
+
+The automation successfully:
+
+* Connected to Chrome
+* Handled the Ashley location popup
+* Accepted cookies
+* Searched for the SKU
+* Found the matching product URL
+
+### Product Extraction Test
+
+Tested SKU: `A4000462`
+
+```text
+Excel SKU:   A4000462
+Website SKU: A4000462
+SKU Match:   True
+
+Product: Ryandale Accent Table
+Price: $249.99
+Rating: 4.8
+```
+
+The extracted result was successfully saved to the Excel output file.
+
+## Current Challenge
+
+Ashley Furniture sometimes displays a human-verification popup during product-page navigation.
+
+```text
+Press & Hold to confirm you are a human.
+```
+
+This interrupts the automation and currently affects continuous processing of all 198 SKUs.
+
+The verification was not bypassed.
+
+## Project Screenshots
+
+### 1. Data Extraction
+
+This screenshot shows the Selenium automation running in VS Code, handling the Ashley website and searching for a product SKU.
+
+![Data Extraction](./screenshots/DataExtraction.png)
+
+### 2. Human Verification
+
+This screenshot shows the human-verification popup encountered during product-page navigation.
+
+![Human Verification](./screenshots/HumanVerification.png)
+
+### 3. VS Code Project Structure
+
+This screenshot shows the Python scripts, Excel files, and project structure used for the assignment.
+
+![VS Code Project Structure](./screenshots/VSCodeStructure.png)
+
+## Project Structure
+
+```text
+Ashley_Interview/
+│
+├── screenshots/
+│   ├── DataExtraction.png
+│   ├── HumanVerification.png
+│   └── VSCodeStructure.png
+│
+├── attach_test.py
+├── excel_selenium_test.py
+├── find_product.py
+├── product_extract_test.py
+├── product_extract_all.py
+├── test_excel.py
+│
+├── ashley_198SKU (1).xlsx
+├── ashley_product_results.xlsx
+└── README.md
+```
+
+## Current Status
+
+| Task                       | Status      |
+| -------------------------- | ----------- |
+| Excel analysis             | Completed   |
+| 198 SKU verification       | Completed   |
+| Selenium setup             | Completed   |
+| Location popup handling    | Completed   |
+| Cookie handling            | Completed   |
+| SKU search                 | Completed   |
+| Product URL identification | Completed   |
+| SKU validation             | Completed   |
+| Basic product extraction   | Completed   |
+| Excel output               | Completed   |
+| All 198 SKUs               | In Progress |
+| Final Excel                | In Progress |
+
+## Future Work
+
+* Continue processing the remaining SKUs
+* Extract all required fields
+* Complete image extraction
+* Handle missing values as `N/A`
+* Complete data cleaning
+* Validate all extracted records
+* Generate the final Excel dataset
+
+## Repository
+
+**Author:** Suraj K S
+
+**GitHub:**
+https://github.com/surajks25
+
+**LinkedIn:**
+https://www.linkedin.com/in/suraj-k-s-0724352b7/
+
+**Project Repository:**
+https://github.com/surajks25/Ashley-Furniture---Technical-Data-Research-Assignment-
+
+## Conclusion
+
+The core web scraping and Selenium automation workflow has been successfully developed and tested.
+
+The project can read SKUs from Excel, search Ashley Furniture, handle common website popups, identify product URLs, validate SKUs, extract basic product information, and save the results to Excel.
+
+The main remaining challenge is the intermittent human-verification popup, which affects continuous processing of all 198 SKUs.
