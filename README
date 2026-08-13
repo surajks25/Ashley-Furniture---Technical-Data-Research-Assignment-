@@ -22,37 +22,26 @@ The required information includes:
 * UPC
 * Product Dimensions
 * Carton Dimensions
+* Other available product details
 
 ## Solution
 
 I developed a Python-based Selenium automation workflow to reduce manual work.
 
-```text
-Excel File
-    ↓
-Read SKU
-    ↓
-Search Ashley Furniture
-    ↓
-Find Product Page
-    ↓
-Validate SKU
-    ↓
-Extract Product Information
-    ↓
-Save to Excel
-```
+The workflow is:
+
+**Excel → SKU → Ashley Furniture Search → Product URL → Product Page → SKU Validation → Data Extraction → Excel**
 
 The automation handles:
 
 * Reading SKUs from Excel
 * Opening Ashley Furniture
 * Handling the location popup
-* Handling cookie popup
+* Handling the cookie popup
 * Searching for SKUs
-* Finding matching product URLs
-* Opening product pages
-* Validating SKUs
+* Finding the matching product URL
+* Opening the product page
+* Validating the SKU
 * Extracting basic product information
 * Saving results to Excel
 
@@ -83,7 +72,7 @@ Tested SKU: `R407681`
 The automation successfully:
 
 * Connected to Chrome
-* Handled the Ashley location popup
+* Handled the location popup
 * Accepted cookies
 * Searched for the SKU
 * Found the matching product URL
@@ -92,14 +81,16 @@ The automation successfully:
 
 Tested SKU: `A4000462`
 
+**Product:** Ryandale Accent Table
+**Price:** $249.99
+**Rating:** 4.8
+
+SKU validation:
+
 ```text
 Excel SKU:   A4000462
 Website SKU: A4000462
 SKU Match:   True
-
-Product: Ryandale Accent Table
-Price: $249.99
-Rating: 4.8
 ```
 
 The extracted result was successfully saved to the Excel output file.
@@ -108,11 +99,9 @@ The extracted result was successfully saved to the Excel output file.
 
 Ashley Furniture sometimes displays a human-verification popup during product-page navigation.
 
-```text
-Press & Hold to confirm you are a human.
-```
+> Press & Hold to confirm you are a human.
 
-This interrupts the automation and currently affects continuous processing of all 198 SKUs.
+This interrupts the automation and affects continuous processing of all 198 SKUs.
 
 The verification was not bypassed.
 
@@ -120,19 +109,19 @@ The verification was not bypassed.
 
 ### 1. Data Extraction
 
-This screenshot shows the Selenium automation running in VS Code, handling the Ashley website and searching for a product SKU.
+The screenshot shows the Selenium automation running in VS Code and searching for a product SKU.
 
 ![Data Extraction](./screenshots/DataExtraction.png)
 
 ### 2. Human Verification
 
-This screenshot shows the human-verification popup encountered during product-page navigation.
+The screenshot shows the human-verification popup encountered during product-page navigation.
 
 ![Human Verification](./screenshots/HumanVerification.png)
 
 ### 3. VS Code Project Structure
 
-This screenshot shows the Python scripts, Excel files, and project structure used for the assignment.
+The screenshot shows the Python scripts, Excel files, and project structure used for the assignment.
 
 ![VS Code Project Structure](./screenshots/VSCodeStructure.png)
 
@@ -181,8 +170,7 @@ Ashley_Interview/
 * Extract all required fields
 * Complete image extraction
 * Handle missing values as `N/A`
-* Complete data cleaning
-* Validate all extracted records
+* Complete data cleaning and validation
 * Generate the final Excel dataset
 
 ## Repository
