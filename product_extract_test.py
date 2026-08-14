@@ -1,11 +1,10 @@
 import pandas as pd
+import time
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-
-import time
 
 
 # ============================================================
@@ -14,455 +13,233 @@ import time
 
 EXCEL_FILE = r"C:\Users\SURAJ KS\projects\Ashley_Interview\ashley_198SKU (1).xlsx"
 
-# Test only the first Excel row
 TEST_ROW = 0
+
+CHROME_DEBUG_ADDRESS = "127.0.0.1:9222"
 
 
 # ============================================================
 # LOAD EXCEL
 # ============================================================
 
-print("\n========================================")
-print("LOADING EXCEL")
-print("========================================")
-
 df = pd.read_excel(EXCEL_FILE)
-
-print("Excel loaded successfully.")
-print("Total SKUs:", len(df))
-
-
-# ============================================================
-# GET SKU
-# ============================================================
 
 sku = str(
     df["sku"].iloc[TEST_ROW]
 ).strip()
 
-print("\n========================================")
+print("=" * 60)
 print("TEST SKU")
-print("========================================")
+print("=" * 60)
 
 print("SKU:", sku)
 
 
 # ============================================================
-# CONNECT TO ALREADY OPEN CHROME
+# CONNECT TO EXISTING CHROME
 # ============================================================
-
-print("\n========================================")
-print("CONNECTING TO CHROME")
-print("========================================")
 
 options = webdriver.ChromeOptions()
 
 options.add_experimental_option(
     "debuggerAddress",
-    "127.0.0.1:9222"
+    CHROME_DEBUG_ADDRESS
 )
 
 driver = webdriver.Chrome(
     options=options
 )
 
-wait = WebDriverWait(
-    driver,
-    20
-)
-
-print("Selenium attached to Chrome.")
+print("\nConnected to Chrome.")
 
 print("Current URL:")
 print(driver.current_url)
 
+print("Title:")
+print(driver.title)
 
-try:
 
-    # ========================================================
-    # STEP 1: CHECK CURRENT PAGE
-    # ========================================================
+# ============================================================
+# MAKE SURE WE ARE ON PRODUCT PAGE
+# ============================================================
 
-    current_url = driver.current_url
+if "/p/" not in driver.current_url:
 
-    print("\n========================================")
-    print("CHECKING CURRENT PAGE")
-    print("========================================")
+    print("\nYou are NOT on a product page.")
+    print("Please open the Ashley product page manually.")
 
-    print(
-        "Current URL:",
-        current_url
+    raise SystemExit
+
+
+# ============================================================
+# FUNCTION TO CLICK TEXT
+# ============================================================
+
+def click_text(text):
+
+    print(f"\nLooking for: {text}")
+
+    elements = driver.find_elements(
+        By.XPATH,
+        f"//*[normalize-space()='{text}']"
     )
 
-
-    # ========================================================
-    # STEP 2:
-    # IF ALREADY ON PRODUCT PAGE
-    # USE IT DIRECTLY
-    # ========================================================
-
-    if "/p/" in current_url:
-
-        print(
-            "\nAlready on a product page."
-        )
-
-        print(
-            "No search required."
-        )
-
-        product_url = current_url
-
-
-    else:
-
-        # ====================================================
-        # STEP 3:
-        # OPEN ASHLEY HOME PAGE
-        # ====================================================
-
-        print(
-            "\nNot on a product page."
-        )
-
-        print(
-            "Opening Ashley home page..."
-        )
-
-        driver.get(
-            "https://www.ashleyfurniture.com/"
-        )
-
-        time.sleep(4)
-
-
-        # ====================================================
-        # STEP 4: HANDLE STAY ON SITE
-        # ====================================================
-
-        print(
-            "\nChecking STAY ON SITE..."
-        )
+    for element in elements:
 
         try:
 
-            stay_button = WebDriverWait(
-                driver,
-                5
-            ).until(
-                EC.visibility_of_element_located(
-                    (
-                        By.XPATH,
-                        "//*[normalize-space()='STAY ON SITE']"
-                    )
-                )
-            )
-
-            print(
-                "STAY ON SITE found."
-            )
-
-            try:
-
-                stay_button.click()
-
-            except Exception:
+            if element.is_displayed():
 
                 driver.execute_script(
-                    "arguments[0].click();",
-                    stay_button
+                    "arguments[0].scrollIntoView({block:'center'});",
+                    element
                 )
 
-            print(
-                "STAY ON SITE clicked."
-            )
+                time.sleep(1)
 
-            time.sleep(2)
+                try:
+                    element.click()
 
-        except Exception:
+                except Exception:
 
-            print(
-                "STAY ON SITE not found."
-            )
-
-
-        # ====================================================
-        # STEP 5: HANDLE COOKIE BANNER
-        # ====================================================
-
-        print(
-            "\nChecking cookie banner..."
-        )
-
-        try:
-
-            cookie_button = WebDriverWait(
-                driver,
-                3
-            ).until(
-                EC.element_to_be_clickable(
-                    (
-                        By.XPATH,
-                        "//*[normalize-space()='Accept All Cookies']"
+                    driver.execute_script(
+                        "arguments[0].click();",
+                        element
                     )
-                )
-            )
 
-            cookie_button.click()
+                print(f"Clicked: {text}")
 
-            print(
-                "Cookies accepted."
-            )
+                time.sleep(2)
 
-            time.sleep(2)
+                return True
 
         except Exception:
+            continue
 
-            print(
-                "Cookie banner not found."
-            )
+    print(f"Could not click: {text}")
+
+    return False
 
 
-        # ====================================================
-        # STEP 6: FIND SEARCH BOX
-        # ====================================================
+# ============================================================
+# CLICK DETAILS & OVERVIEW
+# ============================================================
 
-        print(
-            "\nLooking for search box..."
+click_text("Details & Overview")
+
+
+# ============================================================
+# CLICK DIMENSIONS
+# ============================================================
+
+click_text("Dimensions")
+
+
+# ============================================================
+# WAIT
+# ============================================================
+
+time.sleep(3)
+
+
+# ============================================================
+# GET FULL PAGE TEXT AGAIN
+# ============================================================
+
+print("\n" + "=" * 60)
+print("PAGE TEXT AFTER CLICKING")
+print("=" * 60)
+
+body = driver.find_element(
+    By.TAG_NAME,
+    "body"
+)
+
+page_text = body.text
+
+print(page_text)
+
+
+# ============================================================
+# IMAGE EXTRACTION TEST
+# ============================================================
+
+print("\n" + "=" * 60)
+print("PRODUCT IMAGE TEST")
+print("=" * 60)
+
+images = driver.find_elements(
+    By.TAG_NAME,
+    "img"
+)
+
+print("Total IMG elements:", len(images))
+
+
+image_urls = []
+
+
+for img in images:
+
+    try:
+
+        src = img.get_attribute("src")
+
+        data_src = img.get_attribute(
+            "data-src"
         )
 
-        search_box = WebDriverWait(
-            driver,
-            20
-        ).until(
-            EC.element_to_be_clickable(
-                (
-                    By.XPATH,
-                    "//input[@placeholder='Search']"
-                )
-            )
+        srcset = img.get_attribute(
+            "srcset"
         )
 
-        print(
-            "Search box found."
+        alt = img.get_attribute(
+            "alt"
         )
 
+        url = src or data_src
 
-        # ====================================================
-        # STEP 7: SEARCH SKU
-        # ====================================================
+        if url:
 
-        search_box.click()
+            if url not in image_urls:
 
-        search_box.clear()
+                image_urls.append(url)
 
-        search_box.send_keys(
-            sku
-        )
+                print("\nImage:", len(image_urls))
 
-        print(
-            "SKU entered:",
-            sku
-        )
+                print("URL:")
+                print(url)
 
-        from selenium.webdriver.common.keys import Keys
+                print("ALT:")
+                print(alt)
 
-        search_box.send_keys(
-            Keys.ENTER
-        )
+                if srcset:
 
-        print(
-            "Search submitted."
-        )
+                    print("SRCSET:")
+                    print(srcset)
 
+    except Exception:
+        continue
 
-        # ====================================================
-        # STEP 8: WAIT SEARCH RESULT
-        # ====================================================
 
-        WebDriverWait(
-            driver,
-            20
-        ).until(
-            lambda d:
-            "/search-results" in d.current_url
-        )
+# ============================================================
+# SUMMARY
+# ============================================================
 
-        time.sleep(3)
+print("\n" + "=" * 60)
+print("IMAGE SUMMARY")
+print("=" * 60)
 
+print(
+    "Unique image URLs:",
+    len(image_urls)
+)
 
-        # ====================================================
-        # STEP 9: FIND PRODUCT URL
-        # ====================================================
 
-        print(
-            "\nLooking for product URL..."
-        )
+print("\n" + "=" * 60)
+print("TEST COMPLETE")
+print("=" * 60)
 
-        links = driver.find_elements(
-            By.XPATH,
-            "//a[@href]"
-        )
+print("\nKeep Chrome open.")
 
-        product_urls = []
-
-
-        for link in links:
-
-            try:
-
-                href = link.get_attribute(
-                    "href"
-                )
-
-                if (
-                    href
-                    and "/p/" in href
-                ):
-
-                    if href not in product_urls:
-
-                        product_urls.append(
-                            href
-                        )
-
-            except Exception:
-
-                continue
-
-
-        print(
-            "Product URLs found:",
-            len(product_urls)
-        )
-
-
-        if not product_urls:
-
-            raise Exception(
-                "Product URL not found."
-            )
-
-
-        product_url = product_urls[0]
-
-        print(
-            "Product URL:",
-            product_url
-        )
-
-
-        # ====================================================
-        # STEP 10: OPEN PRODUCT PAGE
-        # ====================================================
-
-        driver.get(
-            product_url
-        )
-
-        time.sleep(5)
-
-
-    # ========================================================
-    # STEP 11: PRODUCT PAGE
-    # ========================================================
-
-    print("\n========================================")
-    print("PRODUCT PAGE")
-    print("========================================")
-
-    print(
-        "URL:"
-    )
-
-    print(
-        driver.current_url
-    )
-
-    print(
-        "\nTitle:"
-    )
-
-    print(
-        driver.title
-    )
-
-
-    # ========================================================
-    # STEP 12: GET PRODUCT PAGE TEXT
-    # ========================================================
-
-    print("\n========================================")
-    print("PRODUCT DATA")
-    print("========================================")
-
-    body = driver.find_element(
-        By.TAG_NAME,
-        "body"
-    )
-
-    page_text = body.text
-
-    print(
-        page_text[:8000]
-    )
-
-
-    # ========================================================
-    # STEP 13: TEST COMPLETE
-    # ========================================================
-
-    print("\n========================================")
-    print("TEST COMPLETE")
-    print("========================================")
-
-    print(
-        "Keeping browser open for 30 seconds..."
-    )
-
-    time.sleep(30)
-
-
-except Exception as e:
-
-    print("\n========================================")
-    print("ERROR")
-    print("========================================")
-
-    print(
-        "Error:",
-        type(e).__name__
-    )
-
-    print(
-        str(e)
-    )
-
-    print(
-        "\nCurrent URL:"
-    )
-
-    print(
-        driver.current_url
-    )
-
-    print(
-        "\nPage title:"
-    )
-
-    print(
-        driver.title
-    )
-
-    time.sleep(20)
-
-
-finally:
-
-    # IMPORTANT:
-    # Do NOT use driver.quit().
-    # Chrome was opened manually and Selenium is attached to it.
-
-    print(
-        "\nSelenium test finished."
-    )
+time.sleep(30)

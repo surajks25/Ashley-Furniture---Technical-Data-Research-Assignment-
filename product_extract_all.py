@@ -1,105 +1,317 @@
-import pandas as pd
-import time
+import os
 import re
+import json
+import html
+import time
+import pandas as pd
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import (
-    TimeoutException,
-    StaleElementReferenceException,
-    ElementClickInterceptedException
-)
+from selenium.common.exceptions import TimeoutException
 
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
 
-EXCEL_FILE = r"C:\Users\SURAJ KS\projects\Ashley_Interview\ashley_198SKU (1).xlsx"
+INPUT_FILE = r"C:\Users\SURAJ KS\projects\Ashley_Interview\ashley_198SKU (1).xlsx"
 
 OUTPUT_FILE = r"C:\Users\SURAJ KS\projects\Ashley_Interview\ashley_product_results.xlsx"
 
-# Chrome must already be running with:
-#
-# --remote-debugging-port=9222
-#
-# You manually open Ashley in this Chrome.
-# You manually complete the human verification.
-# Then this script attaches to that SAME Chrome.
-
 CHROME_DEBUG_ADDRESS = "127.0.0.1:9222"
 
-WAIT_TIME = 20
+WAIT_TIME = 30
 
 # ============================================================
-# IMPORTANT TEST SETTING
+# FULL MODE
 # ============================================================
+# False = process all SKUs
 #
-# True  = test only first SKU
-# False = process all 198 SKUs
-#
-# FIRST RUN:
-# Keep this TRUE.
-#
-# After A4000462 works successfully,
-# change it to FALSE.
+# DO NOT CHANGE THIS TO TRUE.
 # ============================================================
 
-TEST_ONLY_FIRST_SKU = True
+TEST_ONLY_FIRST_SKU = False
 
 
 # ============================================================
-# LOAD EXCEL
+# EXCEL COLUMNS
 # ============================================================
 
-print("\n========================================")
-print("LOADING EXCEL")
-print("========================================")
+OUTPUT_COLUMNS = [
+    "sku",
+    "Landing page",
+    "imageSet",
+    "Description",
+    "Color",
+    "Price",
+    "Series Name",
+    "UPC",
+    "cartonDepthInches",
+    "cartonHeightInches",
+    "cartonVolumeCuFeet",
+    "cartonWidthInches",
+    "chairQtyPerCarton",
+    "unitDepthInches",
+    "unitFriendlyDimensionsInches",
+    "unitHeightInches",
+    "unitWidthInches"
+]
 
-df = pd.read_excel(EXCEL_FILE)
 
-print("Excel loaded successfully.")
-print("Total SKUs:", len(df))
+# ============================================================
+# LOAD INPUT EXCEL
+# ============================================================
+
+print("\n")
+print("=" * 60)
+print("ASHLEY PRODUCT DATA EXTRACTOR")
+print("=" * 60)
+
+print("\n")
+print("=" * 60)
+print("LOADING INPUT EXCEL")
+print("=" * 60)
+
+try:
+    input_df = pd.read_excel(INPUT_FILE)
+
+except Exception as e:
+
+    print("\nCould not load input Excel.")
+
+    print(e)
+
+    raise
+
+
+print(
+    "Input Excel loaded successfully."
+)
+
+print(
+    "Total rows:",
+    len(input_df)
+)
+
+print(
+    "Columns:",
+    list(input_df.columns)
+)
 
 
 # ============================================================
 # CHECK SKU COLUMN
 # ============================================================
 
-if "sku" not in df.columns:
+if "sku" not in input_df.columns:
 
     raise Exception(
-        "ERROR: 'sku' column was not found in the Excel file."
+        "ERROR: 'sku' column was not found."
     )
 
 
 # ============================================================
-# CLEAN SKU VALUES
+# CLEAN INPUT DATA
 # ============================================================
 
-df = df.dropna(
-    subset=["sku"]
-).copy()
-
-df["sku"] = (
-    df["sku"]
+input_df["sku"] = (
+    input_df["sku"]
     .astype(str)
     .str.strip()
 )
 
-print("Valid SKUs:", len(df))
+input_df = input_df[
+    ~input_df["sku"].isin(
+        [
+            "",
+            "nan",
+            "None"
+        ]
+    )
+].copy()
 
 
 # ============================================================
-# CONNECT TO EXISTING CHROME
+# LOAD EXISTING OUTPUT IF AVAILABLE
+# ============================================================
+#
+# This is important.
+#
+# If the script already processed some SKUs and then stopped,
+# we keep those results.
+#
+# When the script runs again, it can continue.
 # ============================================================
 
-print("\n========================================")
+if os.path.exists(OUTPUT_FILE):
+
+    print("\n")
+    print("=" * 60)
+    print("EXISTING OUTPUT FOUND")
+    print("=" * 60)
+
+    try:
+
+        df = pd.read_excel(
+            OUTPUT_FILE
+        )
+
+        print(
+            "Existing output loaded."
+        )
+
+        print(
+            "Existing rows:",
+            len(df)
+        )
+
+    except Exception:
+
+        print(
+            "Existing output could not be loaded."
+        )
+
+        print(
+            "Creating output from input."
+        )
+
+        df = input_df.copy()
+
+else:
+
+    print("\n")
+    print(
+        "No existing output found."
+    )
+
+    print(
+        "Creating output from input Excel."
+    )
+
+    df = input_df.copy()
+
+
+# ============================================================
+# MAKE SURE ALL REQUIRED COLUMNS EXIST
+# ============================================================
+
+for column in OUTPUT_COLUMNS:
+
+    if column not in df.columns:
+
+        df[column] = ""
+
+
+# ============================================================
+# KEEP ONLY INPUT SKUS / PRESERVE INPUT ORDER
+# ============================================================
+
+# Create a lookup of existing extracted results.
+
+existing_data = {}
+
+for _, row in df.iterrows():
+
+    sku_value = str(
+        row.get(
+            "sku",
+            ""
+        )
+    ).strip()
+
+    if sku_value:
+
+        existing_data[
+            sku_value
+        ] = row.to_dict()
+
+
+# ============================================================
+# REBUILD OUTPUT BASED ON ORIGINAL INPUT
+# ============================================================
+
+new_rows = []
+
+for _, input_row in input_df.iterrows():
+
+    sku = str(
+        input_row["sku"]
+    ).strip()
+
+    # Start with original input row
+    row_data = input_row.to_dict()
+
+    # If previous extraction exists, preserve it
+    if sku in existing_data:
+
+        old_data = existing_data[sku]
+
+        for column in OUTPUT_COLUMNS:
+
+            old_value = old_data.get(
+                column,
+                ""
+            )
+
+            # Preserve previously extracted non-empty value
+            if (
+                old_value is not None
+                and
+                str(old_value).strip()
+                not in [
+                    "",
+                    "nan",
+                    "None"
+                ]
+            ):
+
+                row_data[column] = old_value
+
+    new_rows.append(
+        row_data
+    )
+
+
+df = pd.DataFrame(
+    new_rows
+)
+
+
+# ============================================================
+# FORCE OUTPUT COLUMNS TO OBJECT
+# ============================================================
+#
+# Fixes:
+#
+# TypeError:
+# Invalid value '249.99'
+# for dtype 'float64'
+#
+# ============================================================
+
+for column in OUTPUT_COLUMNS:
+
+    df[column] = (
+        df[column]
+        .astype(object)
+    )
+
+
+print(
+    "\nFinal working rows:",
+    len(df)
+)
+
+
+# ============================================================
+# CONNECT TO CHROME
+# ============================================================
+
+print("\n")
+print("=" * 60)
 print("CONNECTING TO CHROME")
-print("========================================")
+print("=" * 60)
 
 options = webdriver.ChromeOptions()
 
@@ -117,17 +329,17 @@ try:
 
 except Exception as e:
 
-    print("\n========================================")
+    print("\n")
+    print("=" * 60)
     print("CHROME CONNECTION FAILED")
-    print("========================================")
+    print("=" * 60)
 
-    print("Error type:")
-    print(type(e).__name__)
+    print(e)
 
-    print("\nError:")
-    print(str(e))
+    print(
+        "\nMake sure Chrome is running with:"
+    )
 
-    print("\nMake sure Chrome was started with:")
     print(
         '--remote-debugging-port=9222'
     )
@@ -135,118 +347,44 @@ except Exception as e:
     raise
 
 
-wait = WebDriverWait(
-    driver,
-    WAIT_TIME
+print(
+    "Selenium attached to Chrome."
+)
+
+print(
+    "\nCurrent URL:"
+)
+
+print(
+    driver.current_url
+)
+
+print(
+    "\nPage title:"
+)
+
+print(
+    driver.title
 )
 
 
-print("Selenium attached to Chrome.")
-
-print("\nCurrent URL:")
-print(driver.current_url)
-
-print("\nPage title:")
-print(driver.title)
-
-
 # ============================================================
-# RESULTS
-# ============================================================
-
-results = []
-
-
-# ============================================================
-# FUNCTION 1
-# HANDLE ASHLEY POPUPS
+# POPUP HANDLER
 # ============================================================
 
 def handle_popups():
 
-    print("\nChecking popups...")
+    print(
+        "\nChecking popups..."
+    )
 
-    # ========================================================
-    # STAY ON SITE
-    # ========================================================
-
-    try:
-
-        stay_buttons = driver.find_elements(
-            By.XPATH,
-            "//*[normalize-space()='STAY ON SITE']"
-        )
-
-        for button in stay_buttons:
-
-            try:
-
-                if not button.is_displayed():
-
-                    continue
-
-                print(
-                    "STAY ON SITE found."
-                )
-
-                try:
-
-                    button.click()
-
-                except Exception:
-
-                    driver.execute_script(
-                        "arguments[0].click();",
-                        button
-                    )
-
-                print(
-                    "STAY ON SITE clicked."
-                )
-
-                time.sleep(2)
-
-                break
-
-            except Exception:
-
-                continue
-
-    except Exception:
-
-        pass
-
-
-    # ========================================================
-    # WAIT FOR BACKDROP
-    # ========================================================
+    # --------------------------------------------------------
+    # ACCEPT ALL COOKIES
+    # --------------------------------------------------------
 
     try:
 
-        WebDriverWait(
-            driver,
-            5
-        ).until(
-            EC.invisibility_of_element_located(
-                (
-                    By.CSS_SELECTOR,
-                    "div.backdrop"
-                )
-            )
-        )
-
-    except Exception:
-
-        pass
-
-
-    # ========================================================
-    # COOKIE BANNER
-    # ========================================================
-
-    try:
-
-        cookie_buttons = driver.find_elements(
+        elements = driver.find_elements(
             By.XPATH,
             "//*[contains("
             "translate(normalize-space(.),"
@@ -256,11 +394,11 @@ def handle_popups():
             ")]"
         )
 
-        for button in cookie_buttons:
+        for element in elements:
 
             try:
 
-                if not button.is_displayed():
+                if not element.is_displayed():
 
                     continue
 
@@ -270,13 +408,13 @@ def handle_popups():
 
                 try:
 
-                    button.click()
+                    element.click()
 
                 except Exception:
 
                     driver.execute_script(
                         "arguments[0].click();",
-                        button
+                        element
                     )
 
                 print(
@@ -296,57 +434,47 @@ def handle_popups():
         pass
 
 
-    # ========================================================
-    # CLOSE VISIBLE NORMAL POPUPS
-    # ========================================================
+    # --------------------------------------------------------
+    # STAY ON SITE
+    # --------------------------------------------------------
 
     try:
 
-        close_buttons = driver.find_elements(
+        elements = driver.find_elements(
             By.XPATH,
-            "//button[contains("
-            "translate(@aria-label,"
-            "'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
-            "'abcdefghijklmnopqrstuvwxyz'),"
-            "'close'"
-            ")]"
+            "//*[normalize-space()='STAY ON SITE']"
         )
 
-        closed = 0
-
-        for button in close_buttons:
+        for element in elements:
 
             try:
 
-                if not button.is_displayed():
+                if not element.is_displayed():
 
                     continue
 
                 try:
 
-                    button.click()
+                    element.click()
 
                 except Exception:
 
                     driver.execute_script(
                         "arguments[0].click();",
-                        button
+                        element
                     )
 
-                closed += 1
+                print(
+                    "STAY ON SITE clicked."
+                )
 
-                time.sleep(0.3)
+                time.sleep(1)
+
+                break
 
             except Exception:
 
                 continue
-
-        if closed > 0:
-
-            print(
-                "Popup close buttons handled:",
-                closed
-            )
 
     except Exception:
 
@@ -354,17 +482,23 @@ def handle_popups():
 
 
 # ============================================================
-# FUNCTION 2
-# CHECK HUMAN VERIFICATION / ACCESS DENIED
+# HUMAN VERIFICATION
+# ============================================================
+#
+# IMPORTANT:
+# We do NOT try to bypass verification.
+#
+# If Ashley asks for human verification:
+#
+# 1. Complete it manually.
+# 2. Come back to terminal.
+# 3. Press ENTER.
+#
 # ============================================================
 
-def check_verification_page():
+def handle_human_verification():
 
     try:
-
-        current_url = driver.current_url
-
-        title = driver.title.lower()
 
         body_text = ""
 
@@ -380,161 +514,120 @@ def check_verification_page():
             pass
 
 
-        # ====================================================
-        # DETECT ACCESS DENIED
-        # ====================================================
-
-        if (
-            "access to this page has been denied" in title
-            or "access to this page has been denied" in body_text
-        ):
-
-            print("\n========================================")
-            print("HUMAN VERIFICATION / ACCESS DENIED")
-            print("========================================")
-
-            print(
-                "Ashley is showing the human-verification page."
-            )
-
-            print(
-                "\nPlease complete the verification MANUALLY "
-                "in the Chrome window."
-            )
-
-            print(
-                "The script will wait for the normal Ashley "
-                "page to return."
-            )
-
-            print(
-                "\nWaiting up to 180 seconds..."
-            )
+        title = driver.title.lower()
 
 
-            try:
+        verification_words = [
+            "before we continue",
+            "press & hold",
+            "press and hold",
+            "confirm you are a human",
+            "and not a bot"
+        ]
 
-                WebDriverWait(
-                    driver,
-                    180
-                ).until(
-                    lambda d:
-                    (
-                        "access to this page has been denied"
-                        not in d.title.lower()
-                    )
-                )
 
-                print(
-                    "\nVerification page appears to be gone."
-                )
+        verification_found = False
 
-                time.sleep(3)
 
-                return True
+        for word in verification_words:
 
-            except TimeoutException:
+            if word in body_text:
 
-                print(
-                    "\nVerification did not complete "
-                    "within 180 seconds."
-                )
+                verification_found = True
 
-                return False
+                break
 
+
+            if word in title:
+
+                verification_found = True
+
+                break
+
+
+        if not verification_found:
+
+            return True
+
+
+        # ----------------------------------------------------
+        # MANUAL VERIFICATION
+        # ----------------------------------------------------
+
+        print("\n")
+        print("=" * 60)
+        print("HUMAN VERIFICATION DETECTED")
+        print("=" * 60)
+
+        print()
+
+        print(
+            "Ashley requires manual human verification."
+        )
+
+        print()
+
+        print(
+            "1. Go to the Chrome window."
+        )
+
+        print(
+            "2. Complete the 'Press & Hold' verification."
+        )
+
+        print(
+            "3. Wait until the Ashley page opens."
+        )
+
+        print(
+            "4. Return to this terminal."
+        )
+
+        print(
+            "5. Press ENTER."
+        )
+
+        print()
+
+        print("=" * 60)
+
+
+        input(
+            "\nPress ENTER after completing verification..."
+        )
+
+
+        print(
+            "\nContinuing..."
+        )
+
+
+        time.sleep(3)
 
         return True
 
-    except Exception:
 
-        return True
+    except Exception as e:
 
+        print(
+            "\nVerification handling error:"
+        )
 
-# ============================================================
-# FUNCTION 3
-# FIND SEARCH BOX ON CURRENT PAGE
-# ============================================================
+        print(e)
 
-def find_search_box():
-
-    print(
-        "\nLooking for search box..."
-    )
-
-
-    search_xpaths = [
-
-        # Exact Ashley search input
-        "//input[@placeholder='Search']",
-
-        # Case-insensitive placeholder
-        "//input[contains("
-        "translate(@placeholder,"
-        "'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
-        "'abcdefghijklmnopqrstuvwxyz'),"
-        "'search'"
-        ")]",
-
-        # Search input by name
-        "//input[@name='q']",
-
-        # Search input by role
-        "//input[@role='combobox']"
-
-    ]
-
-
-    last_error = None
-
-
-    for xpath in search_xpaths:
-
-        try:
-
-            search_box = WebDriverWait(
-                driver,
-                5
-            ).until(
-                EC.element_to_be_clickable(
-                    (
-                        By.XPATH,
-                        xpath
-                    )
-                )
-            )
-
-
-            if search_box.is_displayed():
-
-                print(
-                    "Search box found."
-                )
-
-                return search_box
-
-
-        except Exception as e:
-
-            last_error = e
-
-            continue
-
-
-    raise TimeoutException(
-        "Ashley search box could not be found."
-    )
+        return False
 
 
 # ============================================================
-# FUNCTION 4
-# SEARCH SKU
+# DIRECT SEARCH
 # ============================================================
 
 def search_sku(sku):
 
-    print("\n========================================")
+    print("\n")
+    print("=" * 40)
     print("SEARCHING PRODUCT")
-    print("========================================")
+    print("=" * 40)
 
     print(
         "SKU:",
@@ -542,112 +635,68 @@ def search_sku(sku):
     )
 
 
-    # ========================================================
-    # CHECK HUMAN VERIFICATION
-    # ========================================================
+    # --------------------------------------------------------
+    # DIRECT SEARCH URL
+    # --------------------------------------------------------
 
-    if not check_verification_page():
+    search_url = (
+        "https://www.ashleyfurniture.com/"
+        "search-results?q="
+        + sku
+    )
 
-        raise Exception(
-            "Human verification did not complete."
+
+    print(
+        "\nOpening direct search URL:"
+    )
+
+    print(
+        search_url
+    )
+
+
+    try:
+
+        driver.get(
+            search_url
         )
 
+    except Exception as e:
 
-    # ========================================================
-    # HANDLE POPUPS
-    # ========================================================
+        print(
+            "Could not open search URL."
+        )
+
+        print(e)
+
+        return False
+
+
+    time.sleep(5)
+
+
+    # --------------------------------------------------------
+    # HUMAN VERIFICATION
+    # --------------------------------------------------------
+
+    if not handle_human_verification():
+
+        return False
+
+
+    # --------------------------------------------------------
+    # POPUPS
+    # --------------------------------------------------------
 
     handle_popups()
 
 
-    # ========================================================
-    # FIND SEARCH BOX
-    #
-    # IMPORTANT:
-    #
-    # We DO NOT open Ashley home page here.
-    #
-    # The search box exists on:
-    #
-    # Home page
-    # Search result page
-    # Product page
-    #
-    # Therefore we can reuse the same browser session.
-    # ========================================================
-
-    search_box = find_search_box()
-
-
-    # ========================================================
-    # SCROLL TO SEARCH BOX
-    # ========================================================
-
-    try:
-
-        driver.execute_script(
-            "arguments[0].scrollIntoView({block:'center'});",
-            search_box
-        )
-
-        time.sleep(0.5)
-
-    except Exception:
-
-        pass
-
-
-    # ========================================================
-    # ENTER SKU
-    # ========================================================
-
-    try:
-
-        search_box.click()
-
-    except ElementClickInterceptedException:
-
-        print(
-            "Normal click intercepted."
-        )
-
-        driver.execute_script(
-            "arguments[0].click();",
-            search_box
-        )
-
-
-    search_box.clear()
-
-    search_box.send_keys(
-        sku
-    )
+    # --------------------------------------------------------
+    # WAIT FOR SEARCH RESULTS
+    # --------------------------------------------------------
 
     print(
-        "SKU entered:",
-        sku
-    )
-
-
-    # ========================================================
-    # SUBMIT
-    # ========================================================
-
-    search_box.send_keys(
-        Keys.ENTER
-    )
-
-    print(
-        "Search submitted."
-    )
-
-
-    # ========================================================
-    # WAIT FOR SEARCH RESULT
-    # ========================================================
-
-    print(
-        "\nWaiting for search result..."
+        "\nWaiting for search results..."
     )
 
 
@@ -658,20 +707,39 @@ def search_sku(sku):
             WAIT_TIME
         ).until(
             lambda d:
-            "/search-results" in d.current_url
+            (
+                "/search-results"
+                in d.current_url
+            )
         )
 
     except TimeoutException:
 
-        # Sometimes Ashley updates the page slowly.
-        time.sleep(5)
+        print(
+            "\nSearch result page timeout."
+        )
 
-        if "/search-results" not in driver.current_url:
+        print(
+            "Current URL:",
+            driver.current_url
+        )
 
-            raise
+        return False
 
 
-    time.sleep(4)
+    time.sleep(2)
+
+
+    # --------------------------------------------------------
+    # HUMAN VERIFICATION AGAIN
+    # --------------------------------------------------------
+
+    # We only check once more.
+    # If it appears, user can complete it.
+
+    if not handle_human_verification():
+
+        return False
 
 
     print(
@@ -679,72 +747,77 @@ def search_sku(sku):
     )
 
     print(
-        "Current URL:"
-    )
-
-    print(
+        "Current URL:",
         driver.current_url
     )
 
 
+    return True
+
+
 # ============================================================
-# FUNCTION 5
 # FIND PRODUCT URL
 # ============================================================
 
 def find_product_url(sku):
 
-    print("\n========================================")
+    print("\n")
+    print("=" * 40)
     print("FINDING PRODUCT URL")
-    print("========================================")
-
-
-    links = driver.find_elements(
-        By.XPATH,
-        "//a[@href]"
-    )
+    print("=" * 40)
 
 
     product_urls = []
 
 
-    # ========================================================
-    # FIND /p/ LINKS
-    # ========================================================
+    try:
 
-    for link in links:
-
-        try:
-
-            href = link.get_attribute(
-                "href"
-            )
-
-            if not href:
-
-                continue
+        links = driver.find_elements(
+            By.XPATH,
+            "//a[@href]"
+        )
 
 
-            if "/p/" not in href.lower():
+        for link in links:
 
-                continue
+            try:
 
-
-            # Remove duplicate URLs
-
-            if href not in product_urls:
-
-                product_urls.append(
-                    href
+                href = link.get_attribute(
+                    "href"
                 )
 
 
-        except (
-            StaleElementReferenceException,
-            Exception
-        ):
+                if not href:
 
-            continue
+                    continue
+
+
+                if "/p/" not in href.lower():
+
+                    continue
+
+
+                if href not in product_urls:
+
+                    product_urls.append(
+                        href
+                    )
+
+
+            except Exception:
+
+                continue
+
+
+    except Exception as e:
+
+        print(
+            "Could not find product links."
+        )
+
+        print(e)
+
+        return None
 
 
     print(
@@ -753,13 +826,16 @@ def find_product_url(sku):
     )
 
 
-    # ========================================================
-    # TRY TO MATCH SKU
-    # ========================================================
+    # --------------------------------------------------------
+    # EXACT SKU MATCH
+    # --------------------------------------------------------
+
+    sku_lower = sku.lower()
+
 
     for url in product_urls:
 
-        if sku.lower() in url.lower():
+        if sku_lower in url.lower():
 
             print(
                 "\nSKU matched in product URL."
@@ -776,54 +852,891 @@ def find_product_url(sku):
             return url
 
 
-    # ========================================================
-    # FALLBACK
-    #
-    # Search results normally contain the correct product
-    # for an exact SKU search.
-    # ========================================================
-
-    if product_urls:
-
-        print(
-            "\nSKU was not found directly inside URL."
-        )
-
-        print(
-            "Using first product URL."
-        )
-
-        print(
-            product_urls[0]
-        )
-
-        return product_urls[0]
-
-
-    # ========================================================
-    # PRODUCT NOT FOUND
-    # ========================================================
-
     print(
-        "\nProduct URL NOT found."
+        "\nNo matching product URL found."
     )
 
     return None
 
 
 # ============================================================
-# FUNCTION 6
-# EXTRACT PRODUCT DATA
+# JSON-LD PRODUCT
 # ============================================================
 
-def extract_product_data(
+def get_product_json():
+
+    try:
+
+        scripts = driver.find_elements(
+            By.XPATH,
+            "//script[@type='application/ld+json']"
+        )
+
+
+        for script in scripts:
+
+            try:
+
+                raw = script.get_attribute(
+                    "innerHTML"
+                )
+
+
+                if not raw:
+
+                    continue
+
+
+                raw = html.unescape(
+                    raw
+                ).strip()
+
+
+                data = json.loads(
+                    raw
+                )
+
+
+                # ------------------------------------------------
+                # DICT
+                # ------------------------------------------------
+
+                if isinstance(
+                    data,
+                    dict
+                ):
+
+                    data_type = data.get(
+                        "@type"
+                    )
+
+
+                    if data_type == "Product":
+
+                        return data
+
+
+                    # @graph
+
+                    graph = data.get(
+                        "@graph"
+                    )
+
+
+                    if isinstance(
+                        graph,
+                        list
+                    ):
+
+                        for item in graph:
+
+                            if not isinstance(
+                                item,
+                                dict
+                            ):
+
+                                continue
+
+
+                            if (
+                                item.get("@type")
+                                == "Product"
+                            ):
+
+                                return item
+
+
+                # ------------------------------------------------
+                # LIST
+                # ------------------------------------------------
+
+                if isinstance(
+                    data,
+                    list
+                ):
+
+                    for item in data:
+
+                        if not isinstance(
+                            item,
+                            dict
+                        ):
+
+                            continue
+
+
+                        if (
+                            item.get("@type")
+                            == "Product"
+                        ):
+
+                            return item
+
+
+            except Exception:
+
+                continue
+
+
+    except Exception:
+
+        pass
+
+
+    return {}
+
+
+# ============================================================
+# GET SERIES NAME
+# ============================================================
+
+def get_series_name():
+
+    try:
+
+        element = driver.find_element(
+            By.XPATH,
+            "//input[@name='series_Name']"
+        )
+
+
+        value = element.get_attribute(
+            "value"
+        )
+
+
+        if value:
+
+            return value.strip()
+
+
+    except Exception:
+
+        pass
+
+
+    # Source fallback
+
+    try:
+
+        source = driver.page_source
+
+
+        patterns = [
+
+            r'"series_Name"\s*:\s*"([^"]+)"',
+
+            r'&quot;series_Name&quot;\s*:\s*&quot;([^&]+)&quot;'
+
+        ]
+
+
+        for pattern in patterns:
+
+            match = re.search(
+                pattern,
+                source,
+                re.IGNORECASE
+            )
+
+
+            if match:
+
+                return html.unescape(
+                    match.group(1)
+                ).strip()
+
+
+    except Exception:
+
+        pass
+
+
+    return ""
+
+
+# ============================================================
+# GET UPC
+# ============================================================
+
+def get_upc():
+
+    source = driver.page_source
+
+
+    patterns = [
+
+        r'"upc"\s*:\s*"([0-9]+)"',
+
+        r'&quot;upc&quot;\s*:\s*&quot;([0-9]+)&quot;',
+
+        r'\\"upc\\"\s*:\s*\\"([0-9]+)'
+
+    ]
+
+
+    for pattern in patterns:
+
+        match = re.search(
+            pattern,
+            source,
+            re.IGNORECASE
+        )
+
+
+        if match:
+
+            return match.group(1)
+
+
+    return ""
+
+
+# ============================================================
+# GET COLOR
+# ============================================================
+
+def get_color(
+    product_json,
+    body
+):
+
+    color = product_json.get(
+        "color",
+        ""
+    )
+
+
+    if color:
+
+        return str(
+            color
+        ).strip()
+
+
+    # Visible page fallback
+
+    lines = [
+        line.strip()
+        for line in body.splitlines()
+        if line.strip()
+    ]
+
+
+    for i, line in enumerate(lines):
+
+        if line.lower() == "color":
+
+            if i + 1 < len(lines):
+
+                value = lines[
+                    i + 1
+                ].strip()
+
+
+                if value:
+
+                    return value
+
+
+        if line.lower().startswith(
+            "color:"
+        ):
+
+            value = line.split(
+                ":",
+                1
+            )[1].strip()
+
+
+            if value:
+
+                return value
+
+
+    return ""
+
+
+# ============================================================
+# GET PRICE
+# ============================================================
+
+def get_price(
+    product_json,
+    body
+):
+
+    offers = product_json.get(
+        "offers",
+        {}
+    )
+
+
+    if isinstance(
+        offers,
+        dict
+    ):
+
+        price = offers.get(
+            "price"
+        )
+
+
+        if price is not None:
+
+            try:
+
+                return float(
+                    price
+                )
+
+            except Exception:
+
+                return str(
+                    price
+                )
+
+
+    # Visible page fallback
+
+    matches = re.findall(
+        r"\$\s*([\d,]+\.\d{2})",
+        body
+    )
+
+
+    if matches:
+
+        try:
+
+            return float(
+                matches[0].replace(
+                    ",",
+                    ""
+                )
+            )
+
+        except Exception:
+
+            pass
+
+
+    return ""
+
+
+# ============================================================
+# GET DESCRIPTION
+# ============================================================
+
+def get_description(
+    product_json
+):
+
+    description = product_json.get(
+        "description",
+        ""
+    )
+
+
+    if description:
+
+        return re.sub(
+            r"\s+",
+            " ",
+            str(description)
+        ).strip()
+
+
+    return ""
+
+
+# ============================================================
+# GET IMAGES
+# ============================================================
+
+def get_images(
+    product_json
+):
+
+    images = product_json.get(
+        "image",
+        []
+    )
+
+
+    if isinstance(
+        images,
+        str
+    ):
+
+        images = [
+            images
+        ]
+
+
+    clean_images = []
+
+
+    for image in images:
+
+        if not image:
+
+            continue
+
+
+        image = str(
+            image
+        ).strip()
+
+
+        if image not in clean_images:
+
+            clean_images.append(
+                image
+            )
+
+
+    return " | ".join(
+        clean_images
+    )
+
+
+# ============================================================
+# CLICK DIMENSIONS
+# ============================================================
+
+def click_dimensions():
+
+    print(
+        "\nLooking for Dimensions..."
+    )
+
+
+    try:
+
+        elements = driver.find_elements(
+            By.XPATH,
+            "//*[normalize-space()='Dimensions']"
+        )
+
+
+        for element in elements:
+
+            try:
+
+                if not element.is_displayed():
+
+                    continue
+
+
+                driver.execute_script(
+                    """
+                    arguments[0].scrollIntoView({
+                        block: 'center'
+                    });
+                    """,
+                    element
+                )
+
+
+                time.sleep(1)
+
+
+                try:
+
+                    element.click()
+
+                except Exception:
+
+                    driver.execute_script(
+                        "arguments[0].click();",
+                        element
+                    )
+
+
+                print(
+                    "Dimensions clicked."
+                )
+
+
+                time.sleep(2)
+
+
+                return True
+
+
+            except Exception:
+
+                continue
+
+
+    except Exception:
+
+        pass
+
+
+    print(
+        "Dimensions section not found."
+    )
+
+    return False
+
+
+# ============================================================
+# DIMENSION VALUE
+# ============================================================
+
+def get_dimension_value(
+    body,
+    label
+):
+
+    lines = [
+        line.strip()
+        for line in body.splitlines()
+        if line.strip()
+    ]
+
+
+    # --------------------------------------------------------
+    # Exact line format
+    # --------------------------------------------------------
+
+    for i, line in enumerate(lines):
+
+        clean = (
+            line
+            .lower()
+            .strip()
+            .rstrip(":")
+        )
+
+
+        if clean == label.lower():
+
+            if i + 1 < len(lines):
+
+                value = lines[
+                    i + 1
+                ].strip()
+
+
+                if re.search(
+                    r"\d",
+                    value
+                ):
+
+                    return value
+
+
+    # --------------------------------------------------------
+    # Same line format
+    #
+    # Width: 20.75"
+    # --------------------------------------------------------
+
+    pattern = (
+        re.escape(label)
+        +
+        r"\s*:?\s*"
+        r"([0-9]+(?:\.[0-9]+)?\s*(?:\"|″|in|inches)?)"
+    )
+
+
+    match = re.search(
+        pattern,
+        body,
+        re.IGNORECASE
+    )
+
+
+    if match:
+
+        return match.group(1).strip()
+
+
+    return ""
+
+
+# ============================================================
+# GET DIMENSIONS
+# ============================================================
+
+def get_dimensions():
+
+    click_dimensions()
+
+
+    time.sleep(2)
+
+
+    try:
+
+        body = driver.find_element(
+            By.TAG_NAME,
+            "body"
+        ).text
+
+    except Exception:
+
+        return (
+            "",
+            "",
+            "",
+            ""
+        )
+
+
+    unit_width = get_dimension_value(
+        body,
+        "Width"
+    )
+
+
+    unit_height = get_dimension_value(
+        body,
+        "Height"
+    )
+
+
+    unit_depth = get_dimension_value(
+        body,
+        "Depth"
+    )
+
+
+    # --------------------------------------------------------
+    # FRIENDLY DIMENSIONS
+    # --------------------------------------------------------
+
+    friendly = ""
+
+
+    # Try Ashley style
+    # 21"W x 21"D x 25"H
+
+    patterns = [
+
+        r"\d+(?:\.\d+)?\s*[\"″]\s*W\s*x\s*"
+        r"\d+(?:\.\d+)?\s*[\"″]\s*D\s*x\s*"
+        r"\d+(?:\.\d+)?\s*[\"″]\s*H",
+
+        r"\d+(?:\.\d+)?\s*W\s*x\s*"
+        r"\d+(?:\.\d+)?\s*D\s*x\s*"
+        r"\d+(?:\.\d+)?\s*H"
+
+    ]
+
+
+    for pattern in patterns:
+
+        match = re.search(
+            pattern,
+            body,
+            re.IGNORECASE
+        )
+
+
+        if match:
+
+            friendly = (
+                match.group(0)
+                .strip()
+            )
+
+            break
+
+
+    # If friendly dimensions are not shown,
+    # create them from the extracted dimensions.
+
+    if (
+        not friendly
+        and
+        unit_width
+        and
+        unit_depth
+        and
+        unit_height
+    ):
+
+        friendly = (
+            f"{unit_width} W x "
+            f"{unit_depth} D x "
+            f"{unit_height} H"
+        )
+
+
+    print(
+        "Unit Depth:",
+        unit_depth
+    )
+
+    print(
+        "Friendly Dimensions:",
+        friendly
+    )
+
+    print(
+        "Unit Height:",
+        unit_height
+    )
+
+    print(
+        "Unit Width:",
+        unit_width
+    )
+
+
+    return (
+        unit_depth,
+        friendly,
+        unit_height,
+        unit_width
+    )
+
+
+# ============================================================
+# CARTON / OTHER DETAILS
+# ============================================================
+
+def get_carton_data(
+    body
+):
+
+    carton_depth = ""
+    carton_height = ""
+    carton_volume = ""
+    carton_width = ""
+    chair_qty = ""
+
+
+    # --------------------------------------------------------
+    # Carton Depth
+    # --------------------------------------------------------
+
+    match = re.search(
+        r"Carton\s+Depth\s*:?\s*"
+        r"([0-9]+(?:\.[0-9]+)?)",
+        body,
+        re.IGNORECASE
+    )
+
+
+    if match:
+
+        carton_depth = match.group(1)
+
+
+    # --------------------------------------------------------
+    # Carton Height
+    # --------------------------------------------------------
+
+    match = re.search(
+        r"Carton\s+Height\s*:?\s*"
+        r"([0-9]+(?:\.[0-9]+)?)",
+        body,
+        re.IGNORECASE
+    )
+
+
+    if match:
+
+        carton_height = match.group(1)
+
+
+    # --------------------------------------------------------
+    # Carton Volume
+    # --------------------------------------------------------
+
+    match = re.search(
+        r"Carton\s+Volume"
+        r"(?:\s*\(.*?\))?"
+        r"\s*:?\s*"
+        r"([0-9]+(?:\.[0-9]+)?)",
+        body,
+        re.IGNORECASE
+    )
+
+
+    if match:
+
+        carton_volume = match.group(1)
+
+
+    # --------------------------------------------------------
+    # Carton Width
+    # --------------------------------------------------------
+
+    match = re.search(
+        r"Carton\s+Width\s*:?\s*"
+        r"([0-9]+(?:\.[0-9]+)?)",
+        body,
+        re.IGNORECASE
+    )
+
+
+    if match:
+
+        carton_width = match.group(1)
+
+
+    # --------------------------------------------------------
+    # Chair quantity
+    # --------------------------------------------------------
+
+    patterns = [
+
+        r"Chair\s+Quantity\s+Per\s+Carton\s*:?\s*"
+        r"([0-9]+)",
+
+        r"Chair\s+Qty\s+Per\s+Carton\s*:?\s*"
+        r"([0-9]+)",
+
+        r"Quantity\s+Per\s+Carton\s*:?\s*"
+        r"([0-9]+)"
+
+    ]
+
+
+    for pattern in patterns:
+
+        match = re.search(
+            pattern,
+            body,
+            re.IGNORECASE
+        )
+
+
+        if match:
+
+            chair_qty = match.group(1)
+
+            break
+
+
+    return (
+        carton_depth,
+        carton_height,
+        carton_volume,
+        carton_width,
+        chair_qty
+    )
+
+
+# ============================================================
+# EXTRACT PRODUCT
+# ============================================================
+
+def extract_product(
     sku,
     product_url
 ):
 
-    print("\n========================================")
+    print("\n")
+    print("=" * 60)
     print("OPENING PRODUCT PAGE")
-    print("========================================")
+    print("=" * 60)
 
     print(
         "Product URL:"
@@ -834,9 +1747,9 @@ def extract_product_data(
     )
 
 
-    # ========================================================
+    # --------------------------------------------------------
     # OPEN PRODUCT
-    # ========================================================
+    # --------------------------------------------------------
 
     driver.get(
         product_url
@@ -846,49 +1759,116 @@ def extract_product_data(
     time.sleep(5)
 
 
-    # ========================================================
-    # CHECK VERIFICATION
-    # ========================================================
+    # --------------------------------------------------------
+    # HUMAN VERIFICATION
+    # --------------------------------------------------------
 
-    if not check_verification_page():
+    if not handle_human_verification():
 
         raise Exception(
-            "Human verification interrupted product page."
+            "Human verification was not completed."
         )
 
-
-    # ========================================================
-    # HANDLE POPUPS
-    # ========================================================
 
     handle_popups()
 
 
-    time.sleep(2)
-
-
-    # ========================================================
-    # PRODUCT PAGE INFORMATION
-    # ========================================================
-
-    print("\n========================================")
+    print("\n")
+    print("=" * 60)
     print("PRODUCT PAGE")
-    print("========================================")
+    print("=" * 60)
 
     print(
-        "Current URL:"
-    )
-
-    print(
+        "Current URL:",
         driver.current_url
     )
 
     print(
-        "\nPage title:"
+        "Page title:",
+        driver.title
+    )
+
+
+    # --------------------------------------------------------
+    # BODY
+    # --------------------------------------------------------
+
+    body = driver.find_element(
+        By.TAG_NAME,
+        "body"
+    ).text
+
+
+    source = driver.page_source
+
+
+    # --------------------------------------------------------
+    # JSON-LD
+    # --------------------------------------------------------
+
+    product_json = get_product_json()
+
+
+    # ========================================================
+    # WEBSITE SKU
+    # ========================================================
+
+    website_sku = ""
+
+
+    match = re.search(
+        r"Item:\s*([A-Za-z0-9_-]+)",
+        body,
+        re.IGNORECASE
+    )
+
+
+    if match:
+
+        website_sku = (
+            match.group(1)
+            .strip()
+        )
+
+
+    if not website_sku:
+
+        website_sku = str(
+            product_json.get(
+                "sku",
+                ""
+            )
+        ).strip()
+
+
+    if not website_sku:
+
+        website_sku = sku
+
+
+    sku_valid = (
+        website_sku.lower()
+        ==
+        sku.lower()
+    )
+
+
+    print("\n")
+    print("SKU VALIDATION")
+
+    print(
+        "Excel SKU:",
+        sku
     )
 
     print(
-        driver.title
+        "Website SKU:",
+        website_sku
+    )
+
+    print(
+        "SKU Match:",
+        sku_valid
     )
 
 
@@ -901,410 +1881,541 @@ def extract_product_data(
 
     try:
 
-        product_title = WebDriverWait(
-            driver,
-            WAIT_TIME
-        ).until(
-            EC.presence_of_element_located(
-                (
-                    By.TAG_NAME,
-                    "h1"
-                )
-            )
-        )
-
-
-        product_name = (
-            product_title
-            .text
-            .strip()
-        )
-
-
-    except Exception:
-
-        product_name = ""
-
-
-    # ========================================================
-    # PAGE TEXT
-    # ========================================================
-
-    try:
-
-        body_text = driver.find_element(
+        h1_elements = driver.find_elements(
             By.TAG_NAME,
-            "body"
-        ).text
+            "h1"
+        )
+
+
+        for element in h1_elements:
+
+            try:
+
+                if element.is_displayed():
+
+                    product_name = (
+                        element.text
+                        .strip()
+                    )
+
+                    if product_name:
+
+                        break
+
+            except Exception:
+
+                continue
+
 
     except Exception:
 
-        body_text = ""
+        pass
 
 
-    # ========================================================
-    # EXTRACT WEBSITE SKU
-    # ========================================================
+    if not product_name:
 
-    extracted_sku = sku
-
-
-    sku_match = re.search(
-        r"Item:\s*([A-Za-z0-9]+)",
-        body_text,
-        re.IGNORECASE
-    )
-
-
-    if sku_match:
-
-        extracted_sku = (
-            sku_match
-            .group(1)
-            .strip()
-        )
-
-
-    # ========================================================
-    # VALIDATE SKU
-    # ========================================================
-
-    sku_valid = (
-        extracted_sku.lower()
-        ==
-        sku.lower()
-    )
-
-
-    print(
-        "\nSKU validation:"
-    )
-
-    print(
-        "Excel SKU:",
-        sku
-    )
-
-    print(
-        "Website SKU:",
-        extracted_sku
-    )
-
-    print(
-        "SKU Match:",
-        sku_valid
-    )
-
-
-    # ========================================================
-    # EXTRACT RATING
-    # ========================================================
-
-    rating = ""
-
-
-    rating_patterns = [
-
-        r"Rated\s+([0-9.]+)\s+out of\s+5",
-
-        r"([0-9.]+)\s+out of\s+5"
-
-    ]
-
-
-    for pattern in rating_patterns:
-
-        rating_match = re.search(
-            pattern,
-            body_text,
-            re.IGNORECASE
-        )
-
-        if rating_match:
-
-            rating = (
-                rating_match
-                .group(1)
+        product_name = str(
+            product_json.get(
+                "name",
+                ""
             )
-
-            break
-
-
-    # ========================================================
-    # EXTRACT PRICE
-    # ========================================================
-
-    price = ""
-
-
-    if product_name:
-
-        title_position = (
-            body_text.find(
-                product_name
-            )
-        )
-
-        if title_position >= 0:
-
-            product_section = (
-                body_text[
-                    title_position:
-                    title_position + 3000
-                ]
-            )
-
-        else:
-
-            product_section = (
-                body_text[:3000]
-            )
-
-    else:
-
-        product_section = (
-            body_text[:3000]
-        )
-
-
-    prices = re.findall(
-        r"\$\s*[\d,]+\.\d{2}",
-        product_section
-    )
-
-
-    if prices:
-
-        price = prices[0]
+        ).strip()
 
 
     # ========================================================
-    # EXTRACT DESCRIPTION
+    # LANDING PAGE
     # ========================================================
 
-    description = ""
-
-
-    # Pattern 1:
-    #
-    # Description
-    # text
-    # Made with
-
-    description_match = re.search(
-        r"Description\s*(.*?)\s*Made with",
-        body_text,
-        re.IGNORECASE | re.DOTALL
-    )
-
-
-    if description_match:
-
-        description = (
-            description_match
-            .group(1)
-            .strip()
-        )
-
-
-    else:
-
-        # Pattern 2:
-        #
-        # Description
-        # text
-        # Dimensions
-
-        description_match = re.search(
-            r"Description\s*(.*?)\s*Dimensions",
-            body_text,
-            re.IGNORECASE | re.DOTALL
-        )
-
-
-        if description_match:
-
-            description = (
-                description_match
-                .group(1)
-                .strip()
-            )
-
-
-    # ========================================================
-    # CLEAN DESCRIPTION
-    # ========================================================
-
-    description = re.sub(
-        r"\s+",
-        " ",
-        description
-    ).strip()
-
-
-    # ========================================================
-    # DISPLAY EXTRACTED DATA
-    # ========================================================
-
-    print("\n========================================")
-    print("EXTRACTED PRODUCT")
-    print("========================================")
-
-    print(
-        "SKU:",
-        extracted_sku
-    )
-
-    print(
-        "Product Name:",
-        product_name
-    )
-
-    print(
-        "Price:",
-        price
-    )
-
-    print(
-        "Rating:",
-        rating
-    )
-
-    print(
-        "Description:",
-        description[:500]
-    )
-
-    print(
-        "Product URL:",
-        product_url
-    )
-
-    print(
-        "SKU Valid:",
-        sku_valid
+    landing_page = (
+        driver.current_url
     )
 
 
     # ========================================================
-    # RETURN DATA
+    # IMAGE SET
     # ========================================================
 
-    return {
+    image_set = get_images(
+        product_json
+    )
 
-        "SKU":
-            extracted_sku,
 
-        "Product Name":
-            product_name,
+    # ========================================================
+    # DESCRIPTION
+    # ========================================================
 
-        "Price":
-            price,
+    description = get_description(
+        product_json
+    )
 
-        "Rating":
-            rating,
+
+    # ========================================================
+    # COLOR
+    # ========================================================
+
+    color = get_color(
+        product_json,
+        body
+    )
+
+
+    # ========================================================
+    # PRICE
+    # ========================================================
+
+    price = get_price(
+        product_json,
+        body
+    )
+
+
+    # ========================================================
+    # SERIES
+    # ========================================================
+
+    series_name = get_series_name()
+
+
+    # ========================================================
+    # UPC
+    # ========================================================
+
+    upc = get_upc()
+
+
+    # ========================================================
+    # DIMENSIONS
+    # ========================================================
+
+    (
+        unit_depth,
+        friendly_dimensions,
+        unit_height,
+        unit_width
+    ) = get_dimensions()
+
+
+    # ========================================================
+    # CARTON DATA
+    # ========================================================
+
+    (
+        carton_depth,
+        carton_height,
+        carton_volume,
+        carton_width,
+        chair_qty
+    ) = get_carton_data(
+        body
+    )
+
+
+    # ========================================================
+    # FINAL DATA
+    # ========================================================
+
+    product_data = {
+
+        "sku":
+            sku,
+
+        "Landing page":
+            landing_page,
+
+        "imageSet":
+            image_set,
 
         "Description":
             description,
 
-        "Product URL":
-            product_url,
+        "Color":
+            color,
 
-        "SKU Valid":
-            sku_valid,
+        "Price":
+            price,
 
-        "Status":
-            "SUCCESS"
+        "Series Name":
+            series_name,
+
+        "UPC":
+            upc,
+
+        "cartonDepthInches":
+            carton_depth,
+
+        "cartonHeightInches":
+            carton_height,
+
+        "cartonVolumeCuFeet":
+            carton_volume,
+
+        "cartonWidthInches":
+            carton_width,
+
+        "chairQtyPerCarton":
+            chair_qty,
+
+        "unitDepthInches":
+            unit_depth,
+
+        "unitFriendlyDimensionsInches":
+            friendly_dimensions,
+
+        "unitHeightInches":
+            unit_height,
+
+        "unitWidthInches":
+            unit_width
     }
 
 
-# ============================================================
-# FUNCTION 7
-# SAVE RESULTS
-# ============================================================
+    # ========================================================
+    # PRINT RESULT
+    # ========================================================
 
-def save_results():
+    print("\n")
+    print("=" * 60)
+    print("EXTRACTED PRODUCT")
+    print("=" * 60)
 
-    try:
 
-        output_df = pd.DataFrame(
-            results
+    for column in OUTPUT_COLUMNS:
+
+        print(
+            f"{column}: "
+            f"{product_data.get(column, '')}"
         )
 
 
-        output_df.to_excel(
+    return product_data
+
+
+# ============================================================
+# SAVE EXCEL
+# ============================================================
+
+def save_excel():
+
+    print("\n")
+    print(
+        "Saving Excel..."
+    )
+
+
+    try:
+
+        # Force object dtype
+        for column in OUTPUT_COLUMNS:
+
+            df[column] = (
+                df[column]
+                .astype(object)
+            )
+
+
+        # Keep exact required columns first
+        existing_columns = [
+            column
+            for column in df.columns
+            if column not in OUTPUT_COLUMNS
+        ]
+
+
+        final_columns = (
+            OUTPUT_COLUMNS
+            +
+            existing_columns
+        )
+
+
+        df.to_excel(
             OUTPUT_FILE,
-            index=False
+            index=False,
+            columns=final_columns
         )
 
 
         print(
-            "\nProgress saved:"
+            "Excel saved successfully:"
         )
 
         print(
             OUTPUT_FILE
         )
 
+        return True
+
+
+    except PermissionError:
+
+        print("\n")
+        print("=" * 60)
+        print("EXCEL FILE IS OPEN")
+        print("=" * 60)
+
+        print(
+            "Please close:"
+        )
+
+        print(
+            OUTPUT_FILE
+        )
+
+        print(
+            "Then press ENTER in the terminal."
+        )
+
+
+        input()
+
+
+        try:
+
+            df.to_excel(
+                OUTPUT_FILE,
+                index=False,
+                columns=final_columns
+            )
+
+            print(
+                "Excel saved successfully."
+            )
+
+            return True
+
+        except Exception as e:
+
+            print(
+                "Could not save Excel:"
+            )
+
+            print(e)
+
+            return False
+
 
     except Exception as e:
 
         print(
-            "\nCould not save progress."
+            "Excel save error:"
         )
+
+        print(e)
+
+        return False
+
+
+# ============================================================
+# UPDATE ONE ROW
+# ============================================================
+
+def update_excel_row(
+    index,
+    product_data
+):
+
+    print("\n")
+    print(
+        "Writing extracted data into Excel..."
+    )
+
+
+    # --------------------------------------------------------
+    # Convert columns to object
+    # --------------------------------------------------------
+
+    for column in OUTPUT_COLUMNS:
+
+        df[column] = (
+            df[column]
+            .astype(object)
+        )
+
+
+    # --------------------------------------------------------
+    # WRITE VALUES
+    # --------------------------------------------------------
+
+    for column in OUTPUT_COLUMNS:
+
+        value = product_data.get(
+            column,
+            ""
+        )
+
+
+        if value is None:
+
+            value = ""
+
+
+        df.at[
+            index,
+            column
+        ] = value
+
+
+    # --------------------------------------------------------
+    # SAVE IMMEDIATELY
+    # --------------------------------------------------------
+
+    saved = save_excel()
+
+
+    if saved:
 
         print(
-            type(e).__name__
-        )
-
-        print(
-            str(e)
+            "\nDATA SUCCESSFULLY WRITTEN TO EXCEL."
         )
 
 
-# ============================================================
-# MAIN PROCESSING
-# ============================================================
-
-print("\n========================================")
-print("STARTING PRODUCT EXTRACTION")
-print("========================================")
+    return saved
 
 
 # ============================================================
-# SELECT SKUS
+# DETERMINE ROWS TO PROCESS - RESUME MODE
 # ============================================================
+#
+# IMPORTANT:
+# The script checks the existing output Excel before processing.
+#
+# If "Landing page" already contains a value:
+#     -> SKU is considered completed
+#     -> SKU is SKIPPED
+#
+# If "Landing page" is empty:
+#     -> SKU is considered incomplete
+#     -> SKU is processed
+#
+# This means you can safely stop the script because of human
+# verification and run it again later. Previously completed SKUs
+# will NOT be fetched again.
+# ============================================================
+
+def is_completed_row(row):
+    """
+    Decide whether a SKU has already been successfully extracted.
+
+    Landing page is used as the main completion marker because
+    it is written only when product extraction succeeds.
+    """
+
+    landing_page = row.get("Landing page", "")
+
+    if landing_page is None:
+        return False
+
+    value = str(landing_page).strip()
+
+    return value not in ["", "nan", "None"]
+
 
 if TEST_ONLY_FIRST_SKU:
 
-    rows_to_process = df.head(1)
+    # --------------------------------------------------------
+    # TEST MODE
+    # --------------------------------------------------------
+    # Process only the first incomplete SKU.
+    # --------------------------------------------------------
+
+    incomplete_rows = df[
+        ~df.apply(is_completed_row, axis=1)
+    ]
+
+    rows_to_process = incomplete_rows.head(1)
+
+    print("\n")
+    print("=" * 60)
+    print("TEST MODE - RESUME")
+    print("=" * 60)
 
     print(
-        "\nTEST MODE ENABLED"
-    )
-
-    print(
-        "Only the first SKU will be processed."
+        "Only the first incomplete SKU will be processed."
     )
 
 else:
 
-    rows_to_process = df
+    # --------------------------------------------------------
+    # FULL RESUME MODE
+    # --------------------------------------------------------
+    # Process ONLY rows that do not already have a Landing page.
+    # --------------------------------------------------------
+
+    completed_mask = df.apply(
+        is_completed_row,
+        axis=1
+    )
+
+    rows_to_process = df[
+        ~completed_mask
+    ]
+
+    completed_count = int(
+        completed_mask.sum()
+    )
+
+    remaining_count = len(
+        rows_to_process
+    )
+
+    print("\n")
+    print("=" * 60)
+    print("RESUME EXTRACTION MODE")
+    print("=" * 60)
 
     print(
-        "\nFULL MODE ENABLED"
+        "Total SKUs:",
+        len(df)
     )
 
     print(
-        "All valid SKUs will be processed."
+        "Already completed:",
+        completed_count
     )
 
+    print(
+        "Remaining SKUs:",
+        remaining_count
+    )
+
+    if remaining_count > 0:
+
+        print(
+            "Starting from SKU:",
+            str(
+                rows_to_process.iloc[0]["sku"]
+            ).strip()
+        )
+
+    else:
+
+        print(
+            "ALL SKUs ARE ALREADY COMPLETED."
+        )
+
 
 # ============================================================
-# PROCESS EACH SKU
+# COUNTERS
 # ============================================================
 
-for index, row in rows_to_process.iterrows():
+successful = 0
+
+search_failed = 0
+
+product_not_found = 0
+
+extraction_failed = 0
+
+
+# ============================================================
+# PROCESS ALL SKUS
+# ============================================================
+
+for position, (index, row) in enumerate(
+    rows_to_process.iterrows(),
+    start=1
+):
+
 
     sku = str(
         row["sku"]
@@ -1312,22 +2423,16 @@ for index, row in rows_to_process.iterrows():
 
 
     print("\n\n")
-
+    print("#" * 60)
     print(
-        "########################################"
+        f"PROCESSING {position} / "
+        f"{len(rows_to_process)}"
     )
-
-    print(
-        "PROCESSING SKU"
-    )
-
-    print(
-        "########################################"
-    )
+    print("#" * 60)
 
     print(
         "Excel Row:",
-        index + 1
+        index + 2
     )
 
     print(
@@ -1335,143 +2440,75 @@ for index, row in rows_to_process.iterrows():
         sku
     )
 
-
     # ========================================================
-    # SEARCH PRODUCT
+    # SAFETY CHECK - SKIP ALREADY COMPLETED ROWS
+    # ========================================================
+    #
+    # This is a second protection layer. Even if a completed row
+    # somehow enters rows_to_process, do not search Ashley again.
     # ========================================================
 
-    try:
+    if is_completed_row(df.loc[index]):
 
-        search_sku(
+        print(
+            "\nSKIPPING SKU - DATA ALREADY EXISTS:"
+        )
+
+        print(
             sku
         )
-
-
-    except Exception as e:
-
-        print(
-            "\n========================================"
-        )
-
-        print(
-            "SEARCH FAILED"
-        )
-
-        print(
-            "========================================"
-        )
-
-        print(
-            "Error type:",
-            type(e).__name__
-        )
-
-        print(
-            "Error:",
-            str(e)
-        )
-
-
-        results.append({
-
-            "SKU":
-                sku,
-
-            "Product Name":
-                "",
-
-            "Price":
-                "",
-
-            "Rating":
-                "",
-
-            "Description":
-                "",
-
-            "Product URL":
-                "",
-
-            "SKU Valid":
-                False,
-
-            "Status":
-                "SEARCH_FAILED"
-        })
-
-
-        save_results()
 
         continue
 
 
     # ========================================================
-    # FIND PRODUCT URL
+    # SEARCH
     # ========================================================
 
-    try:
+    search_success = search_sku(
+        sku
+    )
 
-        product_url = find_product_url(
+
+    if not search_success:
+
+        search_failed += 1
+
+        print(
+            "\nSEARCH FAILED:"
+        )
+
+        print(
             sku
         )
 
+        # ----------------------------------------------------
+        # Continue to next SKU
+        # ----------------------------------------------------
 
-    except Exception as e:
-
-        print(
-            "\nProduct URL search failed."
-        )
-
-        print(
-            type(e).__name__
-        )
-
-        print(
-            str(e)
-        )
-
-        product_url = None
+        continue
 
 
     # ========================================================
-    # PRODUCT NOT FOUND
+    # FIND PRODUCT
     # ========================================================
+
+    product_url = find_product_url(
+        sku
+    )
+
 
     if not product_url:
 
+        product_not_found += 1
+
         print(
-            "\nProduct not found."
+            "\nPRODUCT NOT FOUND:"
         )
 
-        results.append({
-
-            "SKU":
-                sku,
-
-            "Product Name":
-                "",
-
-            "Price":
-                "",
-
-            "Rating":
-                "",
-
-            "Description":
-                "",
-
-            "Product URL":
-                "",
-
-            "SKU Valid":
-                False,
-
-            "Status":
-                "PRODUCT_NOT_FOUND"
-        })
-
-
-        save_results()
+        print(
+            sku
+        )
 
         continue
 
@@ -1482,23 +2519,59 @@ for index, row in rows_to_process.iterrows():
 
     try:
 
-        product_data = (
-            extract_product_data(
-                sku,
-                product_url
-            )
+        product_data = extract_product(
+            sku,
+            product_url
         )
 
 
-        results.append(
+        # ----------------------------------------------------
+        # VALIDATE SKU
+        # ----------------------------------------------------
+
+        if not product_data:
+
+            raise Exception(
+                "No product data returned."
+            )
+
+
+        if (
+            str(
+                product_data["sku"]
+            ).lower()
+            !=
+            sku.lower()
+        ):
+
+            raise Exception(
+                "SKU validation failed."
+            )
+
+
+        # ----------------------------------------------------
+        # WRITE TO EXCEL
+        # ----------------------------------------------------
+
+        saved = update_excel_row(
+            index,
             product_data
         )
 
 
+        if saved:
+
+            successful += 1
+
+
     except Exception as e:
 
+        extraction_failed += 1
+
+
+        print("\n")
         print(
-            "\n========================================"
+            "=" * 60
         )
 
         print(
@@ -1506,7 +2579,12 @@ for index, row in rows_to_process.iterrows():
         )
 
         print(
-            "========================================"
+            "=" * 60
+        )
+
+        print(
+            "SKU:",
+            sku
         )
 
         print(
@@ -1520,47 +2598,13 @@ for index, row in rows_to_process.iterrows():
         )
 
 
-        results.append({
-
-            "SKU":
-                sku,
-
-            "Product Name":
-                "",
-
-            "Price":
-                "",
-
-            "Rating":
-                "",
-
-            "Description":
-                "",
-
-            "Product URL":
-                product_url,
-
-            "SKU Valid":
-                False,
-
-            "Status":
-                "EXTRACTION_FAILED"
-        })
-
-
     # ========================================================
-    # SAVE AFTER EVERY SKU
+    # WAIT
     # ========================================================
 
-    save_results()
-
-
-    # ========================================================
-    # DELAY BEFORE NEXT SKU
-    # ========================================================
-
+    print("\n")
     print(
-        "\nWaiting before next SKU..."
+        "Waiting before next SKU..."
     )
 
     time.sleep(3)
@@ -1570,90 +2614,62 @@ for index, row in rows_to_process.iterrows():
 # FINAL SAVE
 # ============================================================
 
-print("\n========================================")
+print("\n")
+print("=" * 60)
 print("FINAL SAVE")
-print("========================================")
+print("=" * 60)
 
-save_results()
+save_excel()
 
 
 # ============================================================
 # FINAL SUMMARY
 # ============================================================
 
-print("\n========================================")
+print("\n")
+print("=" * 60)
 print("EXTRACTION COMPLETE")
-print("========================================")
-
+print("=" * 60)
 
 print(
     "Total processed:",
-    len(results)
+    len(rows_to_process)
 )
-
 
 print(
     "Successful:",
-    sum(
-        1
-        for r in results
-        if r["Status"] == "SUCCESS"
-    )
+    successful
 )
-
 
 print(
     "Product not found:",
-    sum(
-        1
-        for r in results
-        if r["Status"] == "PRODUCT_NOT_FOUND"
-    )
+    product_not_found
 )
-
 
 print(
     "Search failed:",
-    sum(
-        1
-        for r in results
-        if r["Status"] == "SEARCH_FAILED"
-    )
+    search_failed
 )
-
 
 print(
     "Extraction failed:",
-    sum(
-        1
-        for r in results
-        if r["Status"] == "EXTRACTION_FAILED"
-    )
+    extraction_failed
 )
 
-
+print("\n")
 print(
-    "\nOutput file:"
+    "Output file:"
 )
 
 print(
     OUTPUT_FILE
 )
 
-
-# ============================================================
-# IMPORTANT
-#
-# DO NOT USE driver.quit()
-#
-# Chrome was opened manually and Selenium is attached to it.
-# Therefore we leave Chrome running.
-# ============================================================
-
+print("\n")
 print(
-    "\nKeeping Chrome open."
+    "Chrome will remain open."
 )
 
 print(
-    "Selenium test finished."
+    "Selenium finished."
 )
